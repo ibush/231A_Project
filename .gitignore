@@ -1,0 +1,10 @@
+*.log
+*.sty
+*.bst
+*.aux
+*.bbl
+*.synctex.gz
+*.blg
+*.avi
+*.mov
+.DS_Store
