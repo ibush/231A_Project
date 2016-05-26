@@ -5,24 +5,10 @@ import matplotlib.pyplot as plt
 from sklearn import mixture
 import maxflow
 
-'''
-g = maxflow.Graph[float](2,2) #num nodes, num non-terminal edges
-nodes = g.add_nodes(2)
-g.add_edge(nodes[0], nodes[1], 1, 2)
-g.add_tedge(nodes[0], 2, 5)
-g.add_tedge(nodes[1], 9, 4)
-
-flow = g.maxflow()
-print flow
-print "segment of node 0: ", g.get_segment(nodes[0]) # Returns 1 if w/ source node, 0 if with sink
-print "segment of node 1: ", g.get_segment(nodes[1])
-'''
-
-BETA = 0.13
+GAMMA = 50
 K = 5
-NUM_NEIGHBORS = 4 # TODO: 8?
+NUM_NEIGHBORS = 8
 
-# TODO: Have this take in the image and a mask
 def getPixelArray(pixels3D):
 	numPixels = pixels3D.shape[0] * pixels3D.shape[1]
 	pixels = np.empty((numPixels, 3))
@@ -56,6 +42,54 @@ def getTermWeights(pixels, mask):
 	
 	return termWeights
 
+def getNewFgBg(height, width, neighborWeightsY, neighborWeightsX, 
+	neighborWeightsDiag1, neighborWeightsDiag2, fgWeights, bgWeights):
+	numPixels = height * width
+	g = maxflow.Graph[float](numPixels, 2 * numPixels * NUM_NEIGHBORS) #num nodes, num non-terminal edges
+ 	nodeids = g.add_grid_nodes((height, width))
+
+	# Edges pointing up (& down)
+	structure = np.zeros((3,3))
+	structure[0,1] = 1
+	weights = np.vstack((np.zeros((1, width)), neighborWeightsY))
+	g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=True)
+    
+	# Edges pointing left (& right)
+	structure = np.zeros((3,3))
+	structure[1,0] = 1
+	weights = np.hstack((np.zeros((height, 1)), neighborWeightsX))
+	g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=True)
+
+	# Edges pointing left-up (& right-down)
+	structure = np.zeros((3,3))
+	structure[0,0] = 1
+	weights = np.hstack((np.zeros((height-1, 1)), neighborWeightsDiag1))
+	weights = np.vstack((np.zeros((1, width)), weights))
+	g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=True)
+
+	# Edges point right-up (& left-down)
+	structure = np.zeros((3,3))
+	structure[0,2] = 1
+	weights = np.hstack((neighborWeightsDiag2, np.zeros((height-1, 1))))
+	weights = np.vstack((np.zeros((1, width)), weights))
+	g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=True)
+
+	# Terminal edges
+	g.add_grid_tedges(nodeids, fgWeights, bgWeights)
+
+	flow = g.maxflow()
+	bgMask = g.get_grid_segments(nodeids)
+	fgMask = np.full((height, width), False, dtype=bool)
+	fgMask[bgMask == False] = True
+
+	return fgMask, bgMask
+
+def visualizeSegmentation(image, bgMask):
+	bgMask3D = np.broadcast_to(bgMask[:,:,np.newaxis], np.shape(image))
+	maskedImage = np.ma.array(image, mask=bgMask3D)
+	maskedImage[bgMask3D == True] = 0
+	cv2.imshow('Segmentation', maskedImage)
+	cv2.waitKey(1)
 
 def grabCut(image, box, numIters):
 	height = image.shape[0]
@@ -63,11 +97,17 @@ def grabCut(image, box, numIters):
 	numPixels = height * width
 	(x, y, w, h) = box
 
+	# Calculate weights between neighboring pixels
 	distX = np.sum((image[:,:-1,:] - image[:,1:,:])**2, 2)
 	distY = np.sum((image[:-1,:,:] - image[1:,:,:])**2, 2)
-	neighborWeightsX = np.exp(-BETA * distX)
-	neighborWeightsY = np.exp(-BETA * distY)
+	distDiag1 = np.sum((image[:-1,:-1,:] - image[1:,1:,:])**2, 2)
+	distDiag2 = np.sum((image[:-1,1:,:] - image[1:,:-1,:])**2, 2)
+	neighborWeightsX = GAMMA * np.exp(-0.5 * distX / np.mean(distX))
+	neighborWeightsY = GAMMA * np.exp(-0.5 * distY / np.mean(distY))
+	neighborWeightsDiag1 = GAMMA/np.sqrt(2) * np.exp(-0.5 * distDiag1 / np.mean(distDiag1))
+	neighborWeightsDiag2 = GAMMA/np.sqrt(2) * np.exp(-0.5 * distDiag2 / np.mean(distDiag2))
 
+	# Calculate initial (certainly) background and (potentially) foreground masks
 	pixels = getPixelArray(image)
 	probFgMask = np.full((height, width), False, dtype=bool)
 	probFgMask[y:y+h, x:x+w] = True
@@ -78,98 +118,27 @@ def grabCut(image, box, numIters):
 	probBgMask = bgMask
 
 	for i in range(numIters):
-		fgWeights = getTermWeights(pixels, probFgMask)
+		fgWeights = getTermWeights(pixels, probBgMask) #FG edge weights depend on likelihood pixel belongs to BG
 		fgWeights[bgMask == True] = 0
 		fgWeights = fgWeights.reshape((height, width))
-		bgWeights = getTermWeights(pixels, probBgMask)
-		bgWeights[bgMask == True] = 1 # TODO: Fancier calculation in paper
+		bgWeights = getTermWeights(pixels, probFgMask)
+		bgWeights[bgMask == True] = NUM_NEIGHBORS*GAMMA + 1
 		bgWeights = bgWeights.reshape((height, width))
 
-		g = maxflow.Graph[float](numPixels, 2 * numPixels * NUM_NEIGHBORS) #num nodes, num non-terminal edges
+		probFgMask, probBgMask = getNewFgBg(height, width, neighborWeightsY, neighborWeightsX, 
+			neighborWeightsDiag1, neighborWeightsDiag2, fgWeights, bgWeights)
 
-
- 		nodeids = g.add_grid_nodes((height, width))
-		# Edges pointing up 
-		structure = np.zeros((3,3))
-		structure[0,1] = 1
-		weights = np.vstack((np.zeros((1, width)), neighborWeightsY))
-		g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=False)
-    
-    	# TODO: Set symmetric=True and delete down & right
-		# Edges pointing down
-		structure = np.zeros((3,3))
-		structure[2,1] = 1
-		weights = np.vstack((neighborWeightsY, np.zeros((1, width))))
-		g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=False)
-
-		# Edges pointing left
-		structure = np.zeros((3,3))
-		structure[1,0] = 1
-		weights = np.hstack((np.zeros((height, 1)), neighborWeightsX))
-		g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=False)
-
-		# Edges pointing right
-		structure = np.zeros((3,3))
-		structure[1,2] = 1
-		weights = np.hstack((neighborWeightsX, np.zeros((height, 1))))
-		g.add_grid_edges(nodeids, structure=structure, weights=weights, symmetric=False)
-
-		# Terminal edges
-		g.add_grid_tedges(nodeids, fgWeights, bgWeights)
-
-		flow = g.maxflow()
-		probFgMask = g.get_grid_segments(nodeids)
-		probBgMask = np.full((height, width), True, dtype=bool)
-		probBgMask[probFgMask == True] = False
-
-		backgrndMask = np.broadcast_to(probBgMask[:,:,np.newaxis], np.shape(image))
-		maskedImage = np.ma.array(image, mask=backgrndMask) # Masked array
-		maskedImage = np.where(backgrndMask == True, 0, maskedImage)
-		cv2.imshow('Segmentation', maskedImage)
-		cv2.waitKey(1)
+		visualizeSegmentation(image, probBgMask)
 
 		probFgMask = probFgMask.flatten()
 		probBgMask = probBgMask.flatten()
 
-'''
-		nodes = g.add_grid_nodes(numPixels)
-		for i in range(height - 1):
-			for j in range(width - 1):
-				ind = i * width + j
-				g.add_edge(nodes[ind], nodes[ind+1], neighborWeightsX[i][j], neighborWeightsX[i][j])
-				g.add_edge(nodes[ind], nodes[ind+width], neighborWeightsY[i][j], neighborWeightsY[i][j])
-		for i in range(numPixels):
-			g.add_tedge(nodes[i], fgWeights[i], bgWeights[i])
-'''
 
-
-'''
-	clusters = []
-	C1 = np.mgrid[y:y+h, x:x+w].reshape(2, -1).T
-	print C1.shape
-
-	clusters.append(C1)
-	for i in range(K):
-		maxEigVal = 0
-		maxEigVec = []
-		maxInd = 0
-		for j in range(i+1):
-			jClusterVals = image[clusters[j][:,0], clusters[j][:,1], :]
-			eigval, eigvec = np.linalg.eig(jClusterVals)
-			if np.max(eigval) > maxEigVal:
-				maxEigVal = np.max(eigval)
-				maxEigVec = eigvec[np.argmax(eigval,1)]
-				maxInd = j
-
-		clusterVals = image[clusters[maxInd][:,0], clusters[maxInd][:,1], :]
-		threshold = maxEigVec.T * np.mean(clusterVals)
-		split1 = clusters[i][np.where(maxEigVec.T * clusterVals >= threshold)]
-		split2 = clusters[i][np.where(maxEigVec.T * clusterVals < threshold)]
-		clusters[i] = split1
-		clusters.append(split2)
-'''
 image = cv2.imread("../video/still.jpg")
 box = [396, 171, 220, 331]
+#image = cv2.imread("../video/flower.jpeg")
+#box = [50, 1, 200, 180]
+
 #(x, y, w, h) = box
 #cv2.rectangle(image, (x, y), (x+w, y+h), (255, 255, 255), 2)
 #cv2.imshow('image', image)
