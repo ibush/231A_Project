@@ -7,4 +7,5 @@
 *.blg
 *.avi
 *.mov
+*.pyc
 .DS_Store

@@ -16,8 +16,7 @@ def getPixelArray(pixels3D):
 		pixels[:,i] = pixels3D[:,:,i].flatten()
 	return pixels
 
-# TODO: Don't calculate for pixels that are definitely background
-def getTermWeights(pixels, mask):
+def getTermWeights(pixels, mask, certainBgMask):
 	pixelsInClass = pixels[mask == True]
 
 	GMM = mixture.GMM(n_components=K, covariance_type='full')
@@ -33,12 +32,13 @@ def getTermWeights(pixels, mask):
 	numPixels = pixels.shape[0]
 	termWeights = np.empty(numPixels)
 	for j in range(numPixels):
-		sumClusters = 0
-		for i in range(K):
-			diffMean = pixels[j] - means[i]
-			exponent = - 0.5 * diffMean.dot(invCovs[i]).dot(diffMean.T)
-			sumClusters += weights[i] * 1.0 / sqrtDetCovs[i] * np.exp(exponent)
-		termWeights[j] = -np.log(sumClusters)
+		if certainBgMask[j] == False: # Save time by not calculating probability for known background pixels
+			sumClusters = 0
+			for i in range(K):
+				diffMean = pixels[j] - means[i]
+				exponent = - 0.5 * diffMean.dot(invCovs[i]).dot(diffMean.T)
+				sumClusters += weights[i] * 1.0 / sqrtDetCovs[i] * np.exp(exponent)
+			termWeights[j] = -np.log(sumClusters)
 	
 	return termWeights
 
@@ -111,17 +111,19 @@ def grabCut(image, box, numIters):
 	pixels = getPixelArray(image)
 	probFgMask = np.full((height, width), False, dtype=bool)
 	probFgMask[y:y+h, x:x+w] = True
-	probFgMask = probFgMask.flatten()
 	bgMask = np.full((height, width), True, dtype=bool)
 	bgMask[y:y+h, x:x+w] = False
-	bgMask = bgMask.flatten()
 	probBgMask = bgMask
+	bgMask = bgMask.flatten()
 
 	for i in range(numIters):
-		fgWeights = getTermWeights(pixels, probBgMask) #FG edge weights depend on likelihood pixel belongs to BG
+		probFgMask = probFgMask.flatten()
+		probBgMask = probBgMask.flatten()
+
+		fgWeights = getTermWeights(pixels, probBgMask, bgMask) #FG edge weights depend on likelihood pixel belongs to BG
 		fgWeights[bgMask == True] = 0
 		fgWeights = fgWeights.reshape((height, width))
-		bgWeights = getTermWeights(pixels, probFgMask)
+		bgWeights = getTermWeights(pixels, probFgMask, bgMask)
 		bgWeights[bgMask == True] = NUM_NEIGHBORS*GAMMA + 1
 		bgWeights = bgWeights.reshape((height, width))
 
@@ -130,12 +132,13 @@ def grabCut(image, box, numIters):
 
 		visualizeSegmentation(image, probBgMask)
 
-		probFgMask = probFgMask.flatten()
-		probBgMask = probBgMask.flatten()
+	return probFgMask, probBgMask
 
 
-image = cv2.imread("../video/still.jpg")
-box = [396, 171, 220, 331]
+# grabCut Tests:
+
+#image = cv2.imread("../video/still.jpg")
+#box = [396, 171, 220, 331]
 #image = cv2.imread("../video/flower.jpeg")
 #box = [50, 1, 200, 180]
 
@@ -145,4 +148,4 @@ box = [396, 171, 220, 331]
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
 
-grabCut(image, box, 5)
+#grabCut(image, box, 5)

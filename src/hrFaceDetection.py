@@ -5,14 +5,16 @@ import matplotlib.pyplot as plt
 from scipy import signal
 from sklearn.decomposition import FastICA
 import warnings
+from GrabCut import grabCut
 
-USE_SEGMENTATION = False
 REMOVE_EYES = False
 FOREHEAD_ONLY = False
+USE_SEGMENTATION = False
+USE_MY_GRABCUT = False
 
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
 VIDEO_DIR = "../video/"
-DEFAULT_VIDEO = "iphone_2m.mov"
+DEFAULT_VIDEO = "android-1.mp4"
 RESULTS_SAVE_DIR = "../results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
 if REMOVE_EYES:
     RESULTS_SAVE_DIR += "no_eyes/"
@@ -35,18 +37,22 @@ SEC_PER_MIN = 60
 SEGMENTATION_HEIGHT_FRACTION = 1.2
 SEGMENTATION_WIDTH_FRACTION = 0.8
 GRABCUT_ITERATIONS = 5
+MY_GRABCUT_ITERATIONS = 2
 
 EYE_LOWER_FRAC = 0.25
 EYE_UPPER_FRAC = 0.5
 
 def segment(image, faceBox):
-    mask = np.zeros(image.shape[:2],np.uint8)
-    bgdModel = np.zeros((1,65),np.float64)
-    fgdModel = np.zeros((1,65),np.float64)
-
-    cv2.grabCut(image, mask, faceBox, bgdModel, fgdModel, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_RECT)
-
-    backgrndMask = np.where((mask == cv2.GC_BGD) | (mask == cv2.GC_PR_BGD),True,False).astype('uint8')
+    if USE_MY_GRABCUT:
+        foregrndMask, backgrndMask = grabCut(image, faceBox, MY_GRABCUT_ITERATIONS)
+    
+    else:
+        mask = np.zeros(image.shape[:2],np.uint8)
+        bgModel = np.zeros((1,65),np.float64)
+        fgModel = np.zeros((1,65),np.float64)
+        cv2.grabCut(image, mask, faceBox, bgModel, fgModel, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_RECT)
+        backgrndMask = np.where((mask == cv2.GC_BGD) | (mask == cv2.GC_PR_BGD),True,False).astype('uint8')
+    
     backgrndMask = np.broadcast_to(backgrndMask[:,:,np.newaxis], np.shape(image))
     return backgrndMask
 
