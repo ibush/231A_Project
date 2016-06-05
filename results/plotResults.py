@@ -60,13 +60,24 @@ refHR = refHR[VIDEO_START_OFFSET : VIDEO_START_OFFSET + NUM_MEASUREMENTS] * MIN_
 measuredHR = measuredHR[VIDEO_START_OFFSET : VIDEO_START_OFFSET + NUM_MEASUREMENTS] * MIN_PER_SEC
 errorBPM = refHR - measuredHR
 errorPercent = np.abs(errorBPM) / refHR * 100
+percentOutliers = float(np.sum(errorPercent > 10)) / len(errorPercent)
+inlierErrorBPM = errorBPM[errorPercent <= 10]
 
-print measuredHR
-print errorBPM
-print errorPercent
+#print measuredHR
+#print errorBPM
+#print errorPercent
+
+with open("results.csv", "a") as f:
+	f.write(dataFile + "," 
+		+ str(np.mean(errorBPM)) + "," + str(np.std(errorBPM)) + "," 
+		+ str(np.mean(errorPercent)) + "," + str(np.std(errorPercent)) + "," 
+		+ str(percentOutliers) + "," 
+		+ str(np.mean(inlierErrorBPM)) + "," + str(np.std(inlierErrorBPM)) + "\n")
+
 print "Avg error BPM: " + str(np.mean(errorBPM))
 print "Std dev BPM: " + str(np.std(errorBPM))
 print "Avg error percent: " + str(np.mean(errorPercent))
 print "Std dev percent: " + str(np.std(errorPercent))
+print "Percent outliers: " + str(percentOutliers)
 
 #plotHeartRates(refHR, measuredHR)

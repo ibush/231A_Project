@@ -6,11 +6,13 @@ from scipy import signal
 from sklearn.decomposition import FastICA
 import warnings
 from GrabCut import grabCut
+import random
 
 REMOVE_EYES = False
 FOREHEAD_ONLY = False
 USE_SEGMENTATION = False
 USE_MY_GRABCUT = False
+ADD_BOX_ERROR = False
 
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
 VIDEO_DIR = "../video/"
@@ -41,6 +43,8 @@ MY_GRABCUT_ITERATIONS = 2
 
 EYE_LOWER_FRAC = 0.25
 EYE_UPPER_FRAC = 0.5
+
+BOX_ERROR_MAX = 0.5
 
 def segment(image, faceBox):
     if USE_MY_GRABCUT:
@@ -123,12 +127,22 @@ def getBestROI(frame, faceCascade, previousFaceBox):
     else:
         faceBox = faces[0]
 
-
-    # Show rectangle
-    #(x, y, w, h) = faceBox
-    #cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 2)
-
     if faceBox is not None:
+        if ADD_BOX_ERROR:
+            noise = []
+            for i in range(4):
+                noise.append(random.uniform(-BOX_ERROR_MAX, BOX_ERROR_MAX))
+            (x, y, w, h) = faceBox
+            x1 = x + int(noise[0] * w)
+            y1 = y + int(noise[1] * h)
+            x2 = x + w + int(noise[2] * w)
+            y2 = y + h + int(noise[3] * h)
+            faceBox = (x1, y1, x2-x1, y2-y1)
+
+        # Show rectangle
+        #(x, y, w, h) = faceBox
+        #cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 2)
+
         roi = getROI(frame, faceBox)
 
     return faceBox, roi
@@ -242,6 +256,9 @@ while True:
 
 print heartRates
 print videoFile
-np.save(RESULTS_SAVE_DIR + videoFile[0:-4], heartRates)
+filename = RESULTS_SAVE_DIR + videoFile[0:-4]
+if ADD_BOX_ERROR:
+    filename += "_" + str(BOX_ERROR_MAX)
+np.save(filename, heartRates)
 video.release()
 cv2.destroyAllWindows()
