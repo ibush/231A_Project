@@ -1,0 +1,224 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{cvpr}
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% Include other packages here, before hyperref.
+
+% If you comment hyperref and then uncomment it, you should delete
+% egpaper.aux before re-running latex.  (Or just hit 'q' on the first latex
+% run, let it finish, and you should be clear).
+\usepackage[breaklinks=true,bookmarks=false]{hyperref}
+
+\cvprfinalcopy % *** Uncomment this line for the final submission
+
+%\def\cvprPaperID{****} % *** Enter the CVPR Paper ID here
+%\def\httilde{\mbox{\tt\raisebox{-.5ex}{\symbol{126}}}}
+
+% Pages are numbered in submission mode, and unnumbered in camera-ready
+%\ifcvprfinal\pagestyle{empty}\fi
+\setcounter{page}{1}
+\begin{document}
+
+%%%%%%%%% TITLE
+\title{Measuring Heart Rate from Video}
+
+\author{Isabel Bush\\
+Stanford Computer Science\\
+353 Serra Mall, Stanford, CA 94305\\
+{\tt\small ibush@stanford.edu}
+}
+
+\maketitle
+%\thispagestyle{empty}
+
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+   TODO
+\end{abstract}
+
+\section{Introduction}
+
+A person's heart rate can be indicative of their health, fitness, activity level, stress, and much more. Cardiac pulse is typically measured in clinical settings using electrocardiogram (ECG), which requires patients to wear chest straps with adhesive gel patches that can be abrasive and become uncomfortable for the user. Heart rate may also be monitored using pulse oximetry sensors that may be worn on the fingertip or earlobe. These sensors are not convenient for long-term wear and the pressure can become uncomfortable over time.
+
+In addition to the discomforts of traditional pulse measurement devices, these devices can damage the fragile skin of premature newborns or elderly people. For these populations especially, a non-contact means of detecting pulse could be very beneficial. Non-contact heart rate measurement through a simple webcam or phone camera would also aid telemedicine and allow the average person to track their heart rate without purchasing special equipment. As part of the recent gain in popularity of fitness apps and the quantified self, regular non-obtrusive monitoring through a computer web camera may help detect changes in a person's heart rate over time and indicate changing health or fitness. 
+
+Heart rate can be detected without contact through photo-plethysmograpy (PPG), which measures variations in blood volume by detecting changes in light reflectance or transmission throughout the cardiovascular pulse cycle. PPG is usually performed with dedicated light sources with red or infrared wavelengths, as is the case for pulse oximetry sensors. 
+
+Verkruysse \etal showed that the plethysmographic signal could also be detected in video from a regular color camera~\cite{Nelson:2008aa}. They found that the signal could be detected within the red, green, and blue channels of color video of exposed skin, but that it was strongest in the green channel, which corresponds to the fact that hemoglobin has absorption peaks for green and yellow light wavelengths. They also found that although the signal could be detected in multiple locations on the body, it was strongest on the face, especially on the forehead.
+
+Although the plethysmographic signal may be detected in the raw color channel data, it is mixed in with other sources of color variation such as changes in ambient light or motion. Poh \etal found that the signal could be better extracted by using independent component analysis (ICA) to separate independent source signals from the mixed color signals~\cite{Poh:2010aa}.
+
+Other studies have shown that color changes in the face due to pulse may be magnified by amplifying small changes between video frames~\cite{Wu:2012aa}, and that heart rate can be detected through vertical head motion in addition to color changes~\cite{Balakrishnan:2013aa}. Although these are interesting new developments in this space, they are less practical for daily or medical use as the former is more for visualization than quantification, and the latter requires the subject to remain very still for accurate measurements.
+
+In this paper, we explore an approach for heart rate detection using RGB color changes in video of faces similar to that done by Poh \etal~\cite{Poh:2010aa}. In addition to implementing all of the heart rate detection steps from that paper, we also explore improving the selection of pixels used to calculate heart rate including segmenting out the facial pixels through a reimplementation of GrabCut. We examine how these variations on the algorithm compare when there is movement or noise in the videos.
+
+The rest of this paper details the process used to measure heart rate from video. Section 2 details the technical approach, section 3 discusses the experimental setup, section 4 reveals the results, and section 5 includes some conclusions on the process.
+
+\section{Technical Approach}
+
+Detecting heart rate in video consists of four main steps. First, the facial region must be detected in each frame of the video since the face is the only portion of the frame that will contain heart rate information. Second, the desired region of interest (ROI) within the face bounding box must be chosen. And third, the plethysmographic signal must be extracted from the change in pixel colors within the ROI over time and analyzed to determine the prominent frequency within the heart rate range.
+
+\subsection{Face Detection and Tracking}
+
+Face detection and tracking is performed using Haar cascade classifiers as proposed by Viola and Jones~\cite{Viola:2001aa} and improved by Lienhart \etal~\cite{Leinhart:2002aa}. Specifically, we use the OpenCV Cascade Classifier pre-trained on positive and negative frontal face images~\cite{opencv_library}. The face detector is built from a cascade of classifiers of increasing complexity, where each classifier uses one or more Haar-like features.
+
+The features consist of two, three, or four rectangular pixels as shown in figure FIGURE. Each feature is calculated as the sum of pixels in the grey rectangles less the sum of pixels in the white rectangles. These features are able to detect simple vertical, horizontal, and diagonal edges and blobs. 
+
+Since there are over 180,000 potential features in each sub-window, only a small subset of these features are actually used. The AdaBoost learning algorithm is used to train classifiers built on one to a few hundred features. To choose which feature(s) to use, a weak classifier is trained on each feature individually and the classification error is evaluated. The classifier (and associated feature) with the lowest error is chosen for that round, the weights are updated, and the process is repeated until the desired number of features are chosen. This process creates a single strong classifier that is a weighted combination of numerous weak classifiers.
+
+The strong classifiers are then used in series in the attentional cascade, which is essentially a decision tree for each sub-window within the image. The cascade begins with a simple classifier (built on a single feature) with a low threshold such that it is designed to have a very low false negative rate (with high false positive rate). If this classifier yields a positive result on a window, that window passes to the next classifier. If the classifier yields a negative result, the sub-window is rejected. Each round of the cascade uses a more complicated classifier built on more and more features since it must differentiate sub-windows that all passed the previous round. But since there are fewer windows in each round, the processing time is less than if the complicated classifiers were used on all windows in the image.
+
+To achieve invariance with respect to lighting and scale, sub-windows are normalized and the final detector is slid over the image at varying window sizes. Any overlapping positive-classification windows are averaged to create a single facial bounding box.
+
+This face detection algorithm is applied to each frame in the video and outputs a bounding box for each face it detects. To maintain consistency across frames, if no face is detected in a frame, the face from the previous frame is used, and if multiple faces are detected, the face nearest to that in the previous frame is used. 
+
+\subsection{Region of Interest Selection}
+
+Since the face bounding box found using face detection contains background pixels in addition to the facial pixels, an ROI must be chosen from within the bounding box. The simplest choice of ROI is to use the center 60\% of the bounding box width and the full height, as was done by Poh \etal~\cite{Poh:2010aa}. Since the bounding box is usually within the face region height-wise but outside the face width-wise, this method simply adjusts the box to exclude background pixels to the sides of the face. With this method, some hair or background pixels are usually still present at the corners of the box. 
+
+We also explore other means of selecting the ROI. We examine the effects of removing the eye region, which contains non-skin pixels that may vary across frames due to blinking. We explore retaining only the pixels above the eye region, since Verkruysse \etal found the forehead has the strongest plethysmographic signal. Finally, we explore segmenting out the facial pixels from the background pixels.
+
+Facial segmentation is performed using GrabCut, developed by Rother \etal~\cite{Rother:2004aa}. GrabCut segments images by iteratively minimizing an energy cost function. This energy minimization can be achieved by defining a graph model to represent the image and determining the minimum cut for the graph to yield two sets of nodes, which represent the foreground and background pixels of the image. Although an implementation of GrabCut is available in the OpenCV library~\cite{opencv_library}, I also chose to reimplement the algorithm.
+
+The graph model is formed by assigning a node for each pixel in the image. Edges are formed between neighboring image pixels, with weights defined by the color similarity between the two pixels. More similar pixels will have higher edge weights to encourage them to end up in the same set after the graph cut. Each pixel has eight neighbors, and the edge weights between them are calculated as
+
+$$ W_N(p,q) = \frac{\gamma}{dist(p,q)} * e^{-\beta ||z_p-z_q||^2}$$ 
+where $z_p$ is the color of pixel p, $dist(p,q)$ is the pixel distance between p and q, and the constants are set to $\gamma = 50$ and 
+$$\beta = \frac{1}{2 \langle ||z_p-z_q||^2\rangle}$$
+following Boykov and Jolly~\cite{Boykov:2001aa}.
+
+Two more nodes are added to the graph and connected to all other nodes. These nodes represent the foreground and background portions of the image and will be placed in opposite sets by the min-cut algorithm. The weights of the terminal edges between a pixel and the foreground and background nodes represent the probability that the pixel belongs to each set. These probabilities are determined using Gaussian Mixture Models (GMMs) for the foreground and background pixel color distributions.
+
+The foreground set is initialized to contain all pixels inside the bounding box and the background set is initialized to contain all pixels outside the bounding box. Pixels outside the box are assume to be certainly background pixels, while pixels within the bounding box are potentially foreground or background. In each iteration of GrabCut, GMMs are formed for both the foreground and background sets and pixels in those sets are assigned to one of the $K$ GMM clusters. The GMMs were determined using the scikit-learn library~\cite{scikit-learn}.
+
+The terminal weights for all uncertain pixels $p$ are then calculated as
+
+$$W_T(p) = - log \sum_{i=1}^K \pi_i \frac{1}{\sqrt{det(\Sigma_i})} e^{(-\frac{1}{2}[z_p-\mu_i]^T \Sigma_i^-1 [z_p - \mu_i])}$$
+where $\mu_i$ and $\Sigma_i$ are the mean and covariance of the GMM, and the summation is over the $K$ GMM components in either the foreground or the background GMM. The foreground GMM is used to calculate the edge weights to the background terminal node, and vice versa. For any certain background pixels $p$ (outside the original bounding box), we set $W_T(p) = 0$ for the edge to the foreground node and $W_T(p) = 8\gamma + 1$ for the edge to the background node, which ensures these pixels are assigned to the background set by the min-cut algorithm.
+
+Once all edge weights are defined, a minimum s-t cut may be made between the terminal nodes to define the new background and foreground sets for that iteration. The minimum graph cut was found using the PyMaxflow Python library built on top of Vladimir Kolmogorov's C++ GraphCut implementation~\cite{Boykov:2004aa}.
+
+Since GrabCut assumes that the pixels outside of the bounding box are certainly background pixels and pixels within the bounding box are potentially foreground or background pixels, we must modify the bounding box found in face detection. To ensure the bounding box includes all face pixels but excludes some hair pixels (so that hair will be considered as background), a bounding box that was 80\% of the original box width and 120\% of the original box height worked well. 
+
+\subsection{Heart Rate Detection}
+
+Once I have an ROI for each frame, I can begin to extract the heart rate from the color image data. The first step is to average the pixels in the ROI across each color channel to get three signals $x_R(t)$, $x_G(t)$, and $x_B(t)$ corresponding to the average red, green, and blue facial pixels at time $t$. I then normalize these signals across a 30-second sliding window with a 1-second stride (so the heart rate is re-estimated every second).
+
+I then use ICA to extract the independent source signals from the observed mixed color signals. ICA assumes that the number of source signals is no more than the number of observed signals, so I assume there are three source signals $s_1(t)$, $s_2(t)$, and $s_3(t)$ contributing to the observed color changes in the three channels. ICA assumes the observed mixed signals are a linear combination of these source signals. Although this assumption may not be valid as changes in blood volume and the intensity of reflected light in skin tissue over distance may be nonlinear, for the 30-second time window it should be a reasonable approximation. With this linear approximation for signal mixing, we have 
+	$$x(t) = As(t)$$ 
+	$$s(t) = A^{-1}x(t)$$
+where $x(t) = [x_R(t)\ x_G(t)\ x_B(t)]^T$, $s(t) = [s_1(t)\ s_2(t)\ s_3(t)]^T$, and $A$ is a 3x3 matrix of coefficients. Then ICA attempts to find an approximation of $A^{-1}$ that maximizes the non-Gaussianity of each source. I will use FastICA to recover the approximate source signals $s(t)$.
+
+Once I have the source signals, I can use Fourier transform to examine their power spectrum and determine the prominent signal frequencies. I can isolate frequency peaks in the power spectrum within the range 0.75 to 4 Hz, which corresponds to physiological heart rate ranges of 45 to 240 bpm. The measured heart rate will be the frequency within the acceptable range corresponding to the peak with the highest magnitude.
+
+\section{Experimental Setup}
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.045]{figures/setup}
+	\includegraphics[scale=0.045]{figures/ref_setup}
+\end{center}
+\caption{Experimental setup. One-minute videos of a subject's face were captured with a Samsung camera, and a reference PPG signal was recorded using the Easy Pulse fingertip PPG sensor and an Arduino Uno.}
+\label{face_bb}
+\end{figure}
+
+One-minute videos were collected of 10 subjects with varying skin-tones and in varying lighting conditions, including both natural and artificial light. Videos were taken with a Samsung SGH-i437 phone front-facing camera and saved in mp4 format. Video frames had a resolution of 480 x 640 pixels and were captured at 14.99 fps. At least two videos of each subject were taken, one with the subject remaining as still as possible and one in which the subject moved slightly (tilting, turning, and shifting their facial position within the frame). 
+
+The recording setup is shown in figure \ref{setup}. During video recording, subjects wore a finger PPG sensor so that the heart rate results from the video could be compared to a ground truth. The PPG sensor used was an Easy Pulse hobbyist sensor from Embedded Lab~\cite{Bhatt:aa}. It uses an HRM-2511E sensors to measure infrared light transmission through the fingertip and output the analog PPG signal. This signal was fed into the analog-to-digital convertor on the Arduino Uno micro-controller and sampled at 200 Hz. The sampled signal was then processed in the same manner as the ICA source signals from the video heart rate detection approach. The highest peak within the power spectrum of the signal was taken to be the reference heart rate for each 30-second window.
+
+In addition to determining the robustness of the algorithm to subject movement, we also examine the robustness to bounding-box noise. Although the bounding box was usually well centered on the face in each frame, we could imagine that in a noisier environment in which there is more movement of either the camera or subject, poorer lighting, facial occlusions, or more background clutter, there could be more error in the location of the facial bounding box. To simulate this, we add artificial noise to the bounding box corner locations found with the Haar cascade classifier. In each frame, corners of the bounding box were shifted horizontally and vertically by percentages of the width and height, where the percentages were chosen uniformly at random up to a maximum noise percentage. This maximum noise percentage varied from 0 to 40\% of the bounding box size.
+
+\section{Results}
+
+The sections below detail the experimental results. Section \ref{step_results} shows some qualitative results from each step of the algorithm. Section \ref{hr_acc} shows the algorithm accuracy as compared to the reference signal for video of both still and moving subjects. Section \ref{robust_noise} discusses the heart rate accuracy when varying amounts of noise is added to the facial bounding box.
+
+\subsection{Algorithm Step Results} \label{step_results}
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.3]{figures/jane_bb}
+\end{center}
+\caption{A facial bounding box.}
+\label{face_bb}
+\end{figure}
+
+Once the facial bounding box(es) found using the Haar cascade classifiers were narrowed down to a single bounding box on the subject's face, the box accurately located the face in nearly all video frames, as in figure \ref{face_bb}. 
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.2]{figures/jane_box}
+	\includegraphics[scale=0.2]{figures/jane_no_eyes}
+	\includegraphics[scale=0.2]{figures/jane_forehead}
+	\includegraphics[scale=0.2]{figures/jane_segment}
+\end{center}
+\caption{Various ROIs used to calculate heart rate including a narrower bounding box, a box with the eyes removed, the forehead region, and segmented facial pixels.}
+\label{roi}
+\end{figure}
+
+Results of various ROI selection options, including a smaller box, a box with the eyes removed, a box around the forehead, or a segmented face, may be seen in figure \ref{roi}. The simplest ROI, namely the narrower bounding box that was used by Poh \etal, usually contained mostly skin pixels for frontal images, although there was also sometimes hair or background appearing at the corners. When the subject tilted or turned their head, more background pixels become part of the ROI, as shown in figure \ref{tilt_turn}.
+
+Figure \ref{segment} shows the original bounding box, adjusted bounding box, and segmentation results for a straight face using the reimplementation of GrabCut. As can be seen, the segmentation excludes most hair and background pixels within a couple iterations. This seems especially useful when the subject twists or turns as in figure \ref{tilt_turn} as it removes the variability in background pixels that was present using the simple narrow bounding box ROI.
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.3]{figures/segment_bb}\\
+	\includegraphics[scale=0.3]{figures/my_seg_it1}
+	\includegraphics[scale=0.3]{figures/my_seg_it2}
+\end{center}
+\caption{The original bounding box in red and adjusted bounding box that was input into the GrabCut segmentation algorithm in blue (top) as well as the first two iterations of the GrabCut implementation (bottom).}
+\label{segment}
+\end{figure}
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.3]{figures/tilt_bb}
+	\includegraphics[scale=0.3]{figures/tilt_segment}
+	\includegraphics[scale=0.3]{figures/turn_bb}
+	\includegraphics[scale=0.3]{figures/turn_segment}
+\end{center}
+\caption{Comparison of ROI selection for tilted and turned faces using a narrower bounding box (left) versus facial segmentation (right). The segmentation does a better job of eliminating the background pixels.}
+\label{tilt_turn}
+\end{figure}
+
+The next step of the algorithm is to find the heart rate from the selected ROI pixels. As described in the technical approach, this process included finding the mean RGB pixel values within the ROI for each frame and then normalizing across a 30-second window, ICA to extract independent source signals, and power spectrum analysis to determine the prominent frequencies.
+
+Figure \ref{time_plots} shows the normalized mean pixel intensity for the three color channels as well as the three source signals found through ICA. Figure \ref{freq_plot} shows the power spectra for the three source signals within the physiological heart rate range. The strongest frequency in this range corresponds to the heart rate reading for this time-step.
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.46]{figures/RGB_signals_10sec.png}
+	\includegraphics[scale=0.38]{figures/src_signals_10sec.png}
+\end{center}
+\caption{Mean RGB color channel pixel values within the ROI (top) and associated source signals found through ICA (bottom). The source signal shown in green appears to oscillate at approximately 1 Hz and corresponds to the subject's heart rate. }
+\label{time_plots}
+\end{figure}
+
+\begin{figure}
+\begin{center}
+	\includegraphics[scale=0.48]{figures/spectrum_10sec.png}
+\end{center}
+\caption{Power spectrum for the three source signals over the physiological heart-rate range. The prominent frequency (0.97 Hz) corresponds to a heart-rate of 58 bpm.}
+\label{freq_plot}
+\end{figure}
+
+\subsection{Heart Rate Accuracy} \label{hr_acc}
+
+\subsection{Robustness to Noise} \label{robust_noise}
+
+\section{Conclusion}
+
+%-------------------------------------------------------------------------------
+\newpage
+
+{\small
+\bibliographystyle{ieee}
+\bibliography{egbib}
+}
+
+\end{document}
