@@ -9,8 +9,8 @@ import cv2
 import time
 
 filename = '../video/video.avi'
-FPS = 30 #TODO: This just sets the output speed, but it's not capturing that fast...
-NUM_FRAMES = 120#3600
+FPS = 30 #This just sets the output speed, but it's not capturing that fast...
+NUM_FRAMES = 3600
 
 cap = cv2.VideoCapture(0)
 

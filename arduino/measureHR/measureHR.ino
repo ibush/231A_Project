@@ -1,6 +1,6 @@
 
-int sensorPin = A0;    // select the input pin for the potentiometer
-int sensorValue = 0;  // variable to store the value coming from the sensor
+int sensorPin = A0;
+int sensorValue = 0;
 uint32_t lastTimestamp = 0;
 
 void setup() {
