@@ -5,7 +5,8 @@
 \usepackage{epsfig}
 \usepackage{graphicx}
 \usepackage{amsmath}
-\usepackage{amssymb}
+\usepackage{amssymb} 
+\usepackage{url}
 
 % Include other packages here, before hyperref.
 
@@ -63,9 +64,9 @@ The rest of this paper details the process used to measure heart rate from video
 
 \section{Technical Approach} \label{tech_approach}
 
-Detecting heart rate in video consists of three main steps. First, the facial region must be detected in each frame of the video since the face is the only portion of the frame that will contain heart rate information. Second, the desired region of interest (ROI) within the face bounding box must be chosen. And third, the plethysmographic signal must be extracted from the change in pixel colors within the ROI over time and analyzed to determine the prominent frequency within the heart rate range.
+Detecting heart rate in video consists of three main steps, which are detailed in the following sections. First, the facial region must be detected in each frame of the video since the face is the only portion of the frame that will contain heart rate information (section \ref{face_detection}). Second, the desired region of interest (ROI) within the face bounding box must be chosen (section \ref{ROI_selection}). And third, the plethysmographic signal must be extracted from the change in pixel colors within the ROI over time and analyzed to determine the prominent frequency within the heart rate range (section \ref{hr_detection}).
 
-\subsection{Face Detection and Tracking}
+\subsection{Face Detection and Tracking} \label{face_detection}
 
 \begin{figure}
 \begin{center}
@@ -87,7 +88,7 @@ To achieve invariance with respect to lighting and scale, sub-windows are normal
 
 This face detection algorithm is applied to each frame in the video and outputs a bounding box for each face it detects. To maintain consistency across frames, if no face is detected in a frame, the face from the previous frame is used, and if multiple faces are detected, the face nearest to that in the previous frame is used. 
 
-\subsection{Region of Interest Selection}
+\subsection{Region of Interest Selection} \label{ROI_selection}
 
 Since the face bounding box found using face detection contains background pixels in addition to the facial pixels, an ROI must be chosen from within the bounding box. The simplest choice of ROI is to use the center 60\% of the bounding box width and the full height, as was done by Poh \etal~\cite{Poh:2010aa}. Since the bounding box is usually within the face region height-wise but outside the face width-wise, this method simply adjusts the box to exclude background pixels to the sides of the face. With this method, some hair or background pixels are usually still present at the corners of the box. 
 
@@ -115,7 +116,7 @@ Once all edge weights are defined, a minimum s-t cut may be made between the ter
 
 Since GrabCut assumes that the pixels outside of the bounding box are certainly background pixels and pixels within the bounding box are potentially foreground or background pixels, we must modify the bounding box found in face detection. To ensure the bounding box includes all face pixels but excludes some hair pixels (so that hair will be considered as background), a bounding box that was 80\% of the original box width and 120\% of the original box height worked well as input to GrabCut.
 
-\subsection{Heart Rate Detection}
+\subsection{Heart Rate Detection} \label{hr_detection}
 
 Once we have an ROI for each frame, we can begin to extract the heart rate from the color image data. The first step is to average the pixels in the ROI across each color channel to get three signals $x_R(t)$, $x_G(t)$, and $x_B(t)$ corresponding to the average red, green, and blue facial pixels at time $t$. We then normalize these signals across a 30-second sliding window with a 1-second stride (so the heart rate is re-estimated every second).
 
@@ -195,7 +196,7 @@ Figure \ref{segment} shows the original bounding box, adjusted bounding box, and
 \label{tilt_turn}
 \end{figure}
 
-The next step of the algorithm is to find the heart rate from the selected ROI pixels. As described in the technical approach, this process included finding the mean RGB pixel values within the ROI for each frame and then normalizing across a 30-second window, ICA to extract independent source signals, and power spectrum analysis to determine the prominent frequencies.
+The next step of the algorithm is to find the heart rate from the selected ROI pixels. As described in the technical approach, this process includes finding the mean RGB pixel values within the ROI for each frame and then normalizing across a 30-second window, ICA to extract independent source signals, and power spectrum analysis to determine the prominent frequencies.
 
 Figure \ref{time_plots} shows the normalized mean pixel intensity for the three color channels as well as the three source signals found through ICA for a 10-second portion of a window. Figure \ref{freq_plot} shows the power spectra for the three source signals within the physiological heart rate range. The strongest frequency in this range corresponds to the heart rate reading for this time-step.
 
@@ -256,11 +257,13 @@ We have seen that heart rate may be measured in regular color video of a person'
 
 Although sample rate errors could cause a consistent bias in heart rate measurements, the standard deviation and percentage of outlier measurements provide a better indication of the robustness of the algorithm to changes in the video. We observed under 5\% outlier measurements for still faces and under 20\% for videos of moving faces. Since these are both well under 50\%, outliers could be easily identified and removed from heart rate calculations even if there were no reference heart rate to use as a basis. We also found that as bounding box noise increased, choosing an ROI by segmenting out facial pixels helped to diminish the noise effects and keep the outliers low.
 
-Overall we find that for clean videos of subject's faces in good lighting, using a simple ROI defined by 60\% of the width and the full height of the facial bounding box works just as well as removing the eye region or segmenting out facial pixels, and outperforms a box only around the forehead region. Since this simple box ROI is much faster than performing GrabCut to segment out the facial pixels (more than 12 times as fast), the simple box would be the suggested method for such videos.
+Overall we find that for clean videos of subjects' faces in good lighting, using a simple ROI defined by 60\% of the width and the full height of the facial bounding box works just as well as removing the eye region or segmenting out facial pixels, and outperforms a box only around the forehead region. Since this simple box ROI is much faster than performing GrabCut to segment out the facial pixels (more than 12 times as fast), the simple box would be the suggested method for such videos.
 
 However, if the bounding box is expected to be noisy, segmentation is a good method to remove some of this noise and maintain accurate measurements. Future studies could involve taking video in low-light and with a cluttered background or with occlusions or multiple subjects in the frame to quantify how much bounding box noise is realistically present in such situations. This could help to determine if segmentation is necessary.
 
 Another future study could attempt to do video heart rate calculations in real-time rather than with pre-recorded videos. Currently, using a simple box ROI, a one-minute video may be processed on a MacBook Pro (2.6 GHz) in under two minutes, processing about 8 fps. This may in fact already be fast enough for real-time if a camera with a frame rate under 8 fps were used to record the videos. Since the maximum physiological heart rate expected by the algorithm is 4 Hz, the sample rate would be just enough to avoid aliasing at 8 fps (8 Hz is the Nyquist frequency). Since 4 Hz is a highly unlikely heart rate especially for a person at rest, the frame rate could likely be decreased even further and the algorithm max heart rate adjusted accordingly. If segmentation is required (for example if there is significant bounding box noise), other adjustments would be required to speed up the algorithm processing time.
+
+Source code for implementations of the algorithms discussed in this paper may be found at \url{https://github.com/ibush/231A_Project}.
 
 %-------------------------------------------------------------------------------
 \newpage
