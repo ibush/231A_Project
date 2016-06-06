@@ -8,6 +8,7 @@ import warnings
 from GrabCut import grabCut
 import random
 
+# Toggle these for different ROIs
 REMOVE_EYES = False
 FOREHEAD_ONLY = False
 USE_SEGMENTATION = False
@@ -182,7 +183,6 @@ def getHeartRate(window, lastHR):
     # Separate into three source signals using ICA
     ica = FastICA()
     srcSig = ica.fit_transform(normalized)
-    #np.save(RESULTS_SAVE_DIR + videoFile[0:-4] + "_ppg", srcSig)
 
     # Find power spectrum
     powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
@@ -190,9 +190,6 @@ def getHeartRate(window, lastHR):
 
     # Find heart rate
     maxPwrSrc = np.max(powerSpec, axis=1)
-    #if lastHR != None:
-        #validIdx = np.where((freqs >= lastHR - MAX_HR_CHANGE / SEC_PER_MIN) & (freqs <= lastHR + MAX_HR_CHANGE / SEC_PER_MIN))
-    #else: 
     validIdx = np.where((freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
     validPwr = maxPwrSrc[validIdx]
     validFreqs = freqs[validIdx]
@@ -206,19 +203,7 @@ def getHeartRate(window, lastHR):
 
     return hr
 
-'''
-    # Find power spectrum of raw signals
-    powerSpecRaw = np.abs(np.fft.fft(normalized, axis=0))**2
-
-    plt.figure()
-    for i in range(3):
-        plt.subplot(3, 1, i+1)
-        #plt.xlim([0, 4])
-        plt.plot(freqs[idx], powerSpecRaw[idx,i])
-    plt.show()
-'''
-
-# Set up video and fact tracking
+# Set up video and face tracking
 try:
     videoFile = sys.argv[1]
 except:

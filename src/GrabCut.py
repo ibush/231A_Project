@@ -120,7 +120,7 @@ def grabCut(image, box, numIters):
 		probFgMask = probFgMask.flatten()
 		probBgMask = probBgMask.flatten()
 
-		fgWeights = getTermWeights(pixels, probBgMask, bgMask) #FG edge weights depend on likelihood pixel belongs to BG
+		fgWeights = getTermWeights(pixels, probBgMask, bgMask)
 		fgWeights[bgMask == True] = 0
 		fgWeights = fgWeights.reshape((height, width))
 		bgWeights = getTermWeights(pixels, probFgMask, bgMask)
@@ -133,19 +133,4 @@ def grabCut(image, box, numIters):
 		visualizeSegmentation(image, probBgMask)
 
 	return probFgMask, probBgMask
-
-
-# grabCut Tests:
-
-#image = cv2.imread("../video/still.jpg")
-#box = [396, 171, 220, 331]
-#image = cv2.imread("../video/flower.jpeg")
-#box = [50, 1, 200, 180]
-
-#(x, y, w, h) = box
-#cv2.rectangle(image, (x, y), (x+w, y+h), (255, 255, 255), 2)
-#cv2.imshow('image', image)
-#cv2.waitKey(0)
-#cv2.destroyAllWindows()
-
-#grabCut(image, box, 5)
+	
